@@ -453,7 +453,7 @@ const Home: React.FC = () => {
                   placeholder={
                     cardType === 'Annoy' ? 'e.g., "I was sitting here first."' :
                     cardType === 'Blame' ? 'e.g., "My boss really hated your joke."' :
-                    'e.g., "I&apos;d be pissed if I were you."'
+                    'e.g., "Id be pissed if I were you."'
                   }
                   required
                 />
