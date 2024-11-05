@@ -25,16 +25,18 @@ npm run dev
 
 ## Airtable Schema 
 
-1. **ID**: Primary key field
-2. **email**: Email field, type "Email"
-3. **farcasterFid**: Single line text field, type "Single line text"
-4. **CardType**: Single select field, type "Single select" with options "Annoy", "Blame", "Flaw" 
-5. **subTypeAnnoy**: Single select field, type "Single select" with options "Duck", "Skip", "Steal", "Undo"
-6. **subTypePersonality**: Single select field, type "Single select" with options "Arrogant", "Condescending", "Obnoxious", "Meddling", "Odd", "Tactless"
-7. **cardText**: Single line text field, type "Single line text"
-8. **flawName**: Single line text field, type "Single line text"
-9. **agreedToTerms**: Checkbox field, type "Checkbox" 
-10. **submissionDate**: Date field, type "Date" with US format
+| Field Name           | Description                                                                 | Type                    |
+|----------------------|-----------------------------------------------------------------------------|-------------------------|
+| **ID**               | Primary key field                                                           | Primary key             |
+| **email**            | Email field                                                                 | Email                   |
+| **farcasterFid**     | Single line text field                                                      | Single line text        |
+| **CardType**         | Single select field with options "Annoy", "Blame", "Flaw"                   | Single select           |
+| **subTypeAnnoy**     | Single select field with options "Duck", "Skip", "Steal", "Undo"            | Single select           |
+| **subTypePersonality** | Single select field with options "Arrogant", "Condescending", <br> "Obnoxious", "Meddling", "Odd", "Tactless" | Single select           |
+| **cardText**         | Single line text field                                                      | Single line text        |
+| **flawName**         | Single line text field                                                      | Single line text        |
+| **agreedToTerms**    | Checkbox field                                                              | Checkbox                |
+| **submissionDate**   | Date field with US format                                                   | Date                    |
 
 
 ## Features
