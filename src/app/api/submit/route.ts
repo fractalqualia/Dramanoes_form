@@ -6,6 +6,12 @@ if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
   throw new Error('Required environment variables are not set');
 }
 
+interface ErrorResponse {
+  message: string;
+  statusCode?: number;
+  [key: string]: unknown;
+}
+
 export async function POST(req: Request) {
   console.log('API route started');
   
@@ -30,20 +36,23 @@ export async function POST(req: Request) {
       success: true,
       record
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    // Type guard to ensure error is an object with required properties
+    const errorResponse = error as ErrorResponse;
+    
     console.error('API route error:', {
-      message: error.message,
-      statusCode: error.statusCode,
-      error: error
+      message: errorResponse.message || 'Unknown error',
+      statusCode: errorResponse.statusCode,
+      error: errorResponse
     });
 
     return NextResponse.json(
       {
         error: 'Failed to submit card',
-        details: error.message,
-        debug: JSON.stringify(error, null, 2)
+        details: errorResponse.message || 'Unknown error',
+        debug: JSON.stringify(errorResponse, null, 2)
       },
-      { status: error.statusCode || 500 }
+      { status: errorResponse.statusCode || 500 }
     );
   }
 }

@@ -1,7 +1,7 @@
-import Airtable from 'airtable';
+import Airtable, { FieldSet, Record } from 'airtable';
 
 interface SubmissionFields {
-  email?: string;  // Made optional since we might only have farcasterFid
+  email?: string;
   name: string;
   CardType: 'Annoy' | 'Blame' | 'Flaw';
   subTypeAnnoy?: 'Duck' | 'Skip' | 'Steal' | 'Undo';
@@ -13,6 +13,11 @@ interface SubmissionFields {
 }
 
 export type CardSubmission = SubmissionFields;
+
+interface AirtableError extends Error {
+  statusCode?: number;
+  explanation?: string;
+}
 
 // Check for required environment variables
 if (!process.env.AIRTABLE_API_KEY) {
@@ -31,11 +36,11 @@ Airtable.configure({
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
 const table = base('Submissions');
 
-export async function submitToAirtable(data: CardSubmission) {
+export async function submitToAirtable(data: CardSubmission): Promise<Record<FieldSet>> {
   console.log('Starting Airtable submission with data:', JSON.stringify(data, null, 2));
   
   try {
-    const fields = {
+    const fields: Partial<SubmissionFields> & FieldSet = {
       ...(data.email && { email: data.email }),
       name: data.name,
       CardType: data.CardType,
@@ -54,18 +59,19 @@ export async function submitToAirtable(data: CardSubmission) {
     const records = await table.create([{ fields }]);
     console.log('Airtable creation response:', JSON.stringify(records, null, 2));
 
-    if (!records || records.length === 0) {
+    if (!records || !records[0]) {
       throw new Error('No records created');
     }
 
     return records[0];
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const airtableError = error as AirtableError;
     console.error('Detailed Airtable error:', {
-      error: error,
-      message: error.message,
-      statusCode: error.statusCode,
-      explanation: error.explanation
+      error: airtableError,
+      message: airtableError.message || 'Unknown error',
+      statusCode: airtableError.statusCode,
+      explanation: airtableError.explanation
     });
-    throw error;
+    throw airtableError;
   }
 }

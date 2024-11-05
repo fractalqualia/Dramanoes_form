@@ -12,7 +12,28 @@ import { ThumbsUp, PartyPopper } from "lucide-react";
 
 let magic: Magic | null = null;
 
-const Notification = ({ message }: { message: string }) => {
+interface NeynarResponse {
+  fid: string;
+  [key: string]: unknown;
+}
+
+interface MagicSDKError {
+  message: string;
+  code: string;
+  [key: string]: unknown;
+}
+
+interface ExtendedWindow extends Window {
+  onSignInSuccess?: ((data: NeynarResponse) => void) | undefined;
+}
+
+declare global {
+  interface Window {
+    onSignInSuccess?: ((data: NeynarResponse) => void) | undefined;
+  }
+}
+
+const Notification: React.FC<{ message: string }> = ({ message }) => {
   return (
     <div className="fixed top-4 right-4 left-4 sm:left-auto sm:w-96 bg-green-100 border border-green-500 text-green-700 px-4 py-3 rounded-lg shadow-lg z-50 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2">
@@ -23,7 +44,7 @@ const Notification = ({ message }: { message: string }) => {
   );
 };
 
-const SuccessScreen = ({ onSubmitAnother }: { onSubmitAnother: () => void }) => {
+const SuccessScreen: React.FC<{ onSubmitAnother: () => void }> = ({ onSubmitAnother }) => {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
       <div className="mb-6">
@@ -31,7 +52,7 @@ const SuccessScreen = ({ onSubmitAnother }: { onSubmitAnother: () => void }) => 
       </div>
       <h2 className="text-3xl font-bold mb-4">Thanks for Your Submission!</h2>
       <p className="text-lg text-muted-foreground mb-8 max-w-md">
-        Your card has been successfully submitted to the Dramanoes team for review. We'll be in touch soon!
+        Your card has been successfully submitted to the Dramanoes team for review. We&apos;ll be in touch soon!
       </p>
       <Button onClick={onSubmitAnother} size="lg">
         Submit Another Card
@@ -40,11 +61,13 @@ const SuccessScreen = ({ onSubmitAnother }: { onSubmitAnother: () => void }) => 
   );
 };
 
-const CardTypeOption = ({ type, isSelected, onClick }: { 
-  type: string; 
-  isSelected: boolean; 
+interface CardTypeOptionProps {
+  type: string;
+  isSelected: boolean;
   onClick: () => void;
-}) => (
+}
+
+const CardTypeOption: React.FC<CardTypeOptionProps> = ({ type, isSelected, onClick }) => (
   <Card 
     className={`cursor-pointer transition-all duration-200 hover:border-primary ${
       isSelected ? "border-primary border-2" : ""
@@ -57,8 +80,7 @@ const CardTypeOption = ({ type, isSelected, onClick }: {
   </Card>
 );
 
-export default function Home() {
-  // Form state
+const Home: React.FC = () => {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [cardType, setCardType] = useState<'Annoy' | 'Blame' | 'Flaw' | ''>('');
@@ -68,29 +90,24 @@ export default function Home() {
   const [agreed, setAgreed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmissionComplete, setIsSubmissionComplete] = useState(false);
-
-  // Verification state
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [isMagicReady, setIsMagicReady] = useState(false);
   const [farcasterFid, setFarcasterFid] = useState('');
   const [isFarcasterVerified, setIsFarcasterVerified] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
-  
-  // Notification state
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
 
-  // Reference for the Farcaster container
   const farcasterContainerRef = useRef<HTMLDivElement>(null);
 
-  const displayNotification = (message: string) => {
+  const displayNotification = (message: string): void => {
     setNotificationMessage(message);
     setShowNotification(true);
     setTimeout(() => setShowNotification(false), 3000);
   };
 
-  const initializeFarcasterButton = () => {
+  const initializeFarcasterButton = (): (() => void) | void => {
     if (farcasterContainerRef.current) {
       farcasterContainerRef.current.innerHTML = '';
       const buttonDiv = document.createElement('div');
@@ -100,7 +117,6 @@ export default function Home() {
       buttonDiv.setAttribute('data-theme', 'light');
       farcasterContainerRef.current.appendChild(buttonDiv);
 
-      // Reload the Neynar script
       const script = document.createElement('script');
       script.src = 'https://neynarxyz.github.io/siwn/raw/1.2.0/index.js';
       script.async = true;
@@ -124,9 +140,12 @@ export default function Home() {
     magic.preload().then(() => {
       console.log('Magic SDK ready');
       setIsMagicReady(true);
+    }).catch((error: unknown) => {
+      const magicError = error as MagicSDKError;
+      console.error('Magic SDK initialization error:', magicError);
     });
 
-    (window as any).onSignInSuccess = (data: any) => {
+    const callback = (data: NeynarResponse) => {
       console.log("Farcaster sign-in success:", data);
       setFarcasterFid(data.fid);
       setIsFarcasterVerified(true);
@@ -134,14 +153,18 @@ export default function Home() {
       displayNotification("Farcaster account verified successfully!");
     };
 
+    (window as ExtendedWindow).onSignInSuccess = callback;
+
     initializeFarcasterButton();
 
     return () => {
-      delete (window as any).onSignInSuccess;
+      if ((window as ExtendedWindow).onSignInSuccess) {
+        (window as ExtendedWindow).onSignInSuccess = undefined;
+      }
     };
   }, []);
 
-  const handleEmailVerification = async () => {
+  const handleEmailVerification = async (): Promise<void> => {
     if (!email || !magic || !isMagicReady) return;
 
     try {
@@ -156,15 +179,16 @@ export default function Home() {
       setIsEmailVerified(true);
       setIsVerified(true);
       displayNotification("Email verified successfully!");
-    } catch (error) {
-      console.error('Verification error:', error);
+    } catch (error: unknown) {
+      const magicError = error as MagicSDKError;
+      console.error('Verification error:', magicError);
       displayNotification("Error verifying email. Please try again.");
     } finally {
       setIsVerifyingEmail(false);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
 
     if (!isVerified) {
@@ -178,7 +202,7 @@ export default function Home() {
     }
 
     if (!name || !cardType || !cardText || (cardType === 'Flaw' && !flawName)) {
-      let missingFields = [];
+      const missingFields: string[] = [];
       if (!name) missingFields.push('Name');
       if (!cardType) missingFields.push('Card Type');
       if (!cardText) missingFields.push('Card Text');
@@ -227,8 +251,7 @@ export default function Home() {
     }
   };
 
-  const handleSubmitAnother = () => {
-    // Reset all form fields
+  const handleSubmitAnother = (): void => {
     setEmail('');
     setName('');
     setCardType('');
@@ -236,23 +259,16 @@ export default function Home() {
     setCardText('');
     setFlawName('');
     setAgreed(false);
-    
-    // Reset all verification states
     setIsEmailVerified(false);
     setIsFarcasterVerified(false);
     setIsVerified(false);
     setFarcasterFid('');
     setIsVerifyingEmail(false);
-    
-    // Reset submission states
     setIsSubmissionComplete(false);
     setIsSubmitting(false);
-    
-    // Reset notification state
     setShowNotification(false);
     setNotificationMessage('');
 
-    // Reinitialize Farcaster button
     setTimeout(() => {
       initializeFarcasterButton();
     }, 0);
@@ -380,7 +396,7 @@ export default function Home() {
               {cardType && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">
-                  {cardType === 'Annoy' ? 'Annoy Type' : 
+                    {cardType === 'Annoy' ? 'Annoy Type' : 
                      cardType === 'Blame' ? 'Blame a Flaw' : 
                      'Flaw Type'}
                   </label>
@@ -437,7 +453,7 @@ export default function Home() {
                   placeholder={
                     cardType === 'Annoy' ? 'e.g., "I was sitting here first."' :
                     cardType === 'Blame' ? 'e.g., "My boss really hated your joke."' :
-                    'e.g., "I\'d be pissed if I were you."'
+                    'e.g., "I&apos;d be pissed if I were you."'
                   }
                   required
                 />
@@ -468,4 +484,6 @@ export default function Home() {
       </div>
     </div>
   );
-}
+};
+
+export default Home;
