@@ -130,9 +130,6 @@ Commit your changes (git commit -m 'Add some amazing feature')
 Push to the branch (git push origin feature/amazing-feature)
 Open a Pull Request
 
-License
-This project is private and proprietary. All rights reserved.
-Acknowledgments
 
 Magic SDK Documentation
 Neynar Documentation
