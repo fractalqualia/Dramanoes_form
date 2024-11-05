@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     console.log('Received data in API route:', JSON.stringify(data, null, 2));
 
     // Check for required fields - either email OR farcasterFid must be present
-    if ((!data.email && !data.farcasterFid) || !data.name || !data.CardType || !data.agreedToTerms) {
+    if ((!data.email && !data.farcasterFid) || !data.CardType || !data.agreedToTerms) {
       return NextResponse.json(
         { 
           error: 'Missing required fields',

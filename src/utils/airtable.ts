@@ -2,7 +2,6 @@ import Airtable, { FieldSet, Record } from 'airtable';
 
 interface SubmissionFields {
   email?: string;
-  name: string;
   CardType: 'Annoy' | 'Blame' | 'Flaw';
   subTypeAnnoy?: 'Duck' | 'Skip' | 'Steal' | 'Undo';
   subTypePersonality?: 'Arrogant' | 'Condescending' | 'Meddling' | 'Obnoxious' | 'Odd' | 'Tactless';
@@ -28,13 +27,17 @@ if (!process.env.AIRTABLE_BASE_ID) {
   throw new Error('AIRTABLE_BASE_ID is not defined');
 }
 
+if (!process.env.AIRTABLE_TABLE_NAME) {
+  throw new Error('AIRTABLE_TABLE_NAME is not defined');
+}
+
 Airtable.configure({
   apiKey: process.env.AIRTABLE_API_KEY,
   endpointUrl: 'https://api.airtable.com'
 });
 
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
-const table = base('Submissions');
+const table = base(process.env.AIRTABLE_TABLE_NAME);
 
 export async function submitToAirtable(data: CardSubmission): Promise<Record<FieldSet>> {
   console.log('Starting Airtable submission with data:', JSON.stringify(data, null, 2));
@@ -42,7 +45,6 @@ export async function submitToAirtable(data: CardSubmission): Promise<Record<Fie
   try {
     const fields: Partial<SubmissionFields> & FieldSet = {
       ...(data.email && { email: data.email }),
-      name: data.name,
       CardType: data.CardType,
       cardText: data.cardText,
       agreedToTerms: data.agreedToTerms,

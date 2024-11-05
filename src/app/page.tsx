@@ -4,11 +4,10 @@ import { CardSubmission } from '@/utils/airtable';
 import { Magic } from 'magic-sdk';
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { ThumbsUp, PartyPopper } from "lucide-react";
+import { ThumbsUp, PartyPopper, LogOut } from "lucide-react";
 
 let magic: Magic | null = null;
 
@@ -23,8 +22,10 @@ interface MagicSDKError {
   [key: string]: unknown;
 }
 
-interface ExtendedWindow extends Window {
-  onSignInSuccess?: ((data: NeynarResponse) => void) | undefined;
+interface AuthState {
+  isLoggedIn: boolean;
+  userIdentifier: string;
+  authenticationType: 'email' | 'farcaster' | null;
 }
 
 declare global {
@@ -33,33 +34,35 @@ declare global {
   }
 }
 
-const Notification: React.FC<{ message: string }> = ({ message }) => {
-  return (
-    <div className="fixed top-4 right-4 left-4 sm:left-auto sm:w-96 bg-green-100 border border-green-500 text-green-700 px-4 py-3 rounded-lg shadow-lg z-50 flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2">
-        <ThumbsUp className="h-5 w-5" />
-        <p className="font-medium">{message}</p>
-      </div>
-    </div>
-  );
-};
+const SectionHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h3 className="text-xl font-bold bg-gradient-to-r from-primary/90 to-primary/60 bg-clip-text text-transparent mb-4">
+    {children}
+  </h3>
+);
 
-const SuccessScreen: React.FC<{ onSubmitAnother: () => void }> = ({ onSubmitAnother }) => {
-  return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
-      <div className="mb-6">
-        <PartyPopper className="h-16 w-16 text-primary mx-auto mb-4" />
-      </div>
-      <h2 className="text-3xl font-bold mb-4">Thanks for Your Submission!</h2>
-      <p className="text-lg text-muted-foreground mb-8 max-w-md">
-        Your card has been successfully submitted to the Dramanoes team for review. We&apos;ll be in touch soon!
-      </p>
-      <Button onClick={onSubmitAnother} size="lg">
-        Submit Another Card
-      </Button>
+const Notification: React.FC<{ message: string }> = ({ message }) => (
+  <div className="fixed top-4 right-4 left-4 sm:left-auto sm:w-96 bg-green-100 border border-green-500 text-green-700 px-4 py-3 rounded-lg shadow-lg z-50 flex items-center justify-between gap-2">
+    <div className="flex items-center gap-2">
+      <ThumbsUp className="h-5 w-5" />
+      <p className="font-medium">{message}</p>
     </div>
-  );
-};
+  </div>
+);
+
+const SuccessScreen: React.FC<{ onSubmitAnother: () => void }> = ({ onSubmitAnother }) => (
+  <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
+    <div className="mb-6">
+      <PartyPopper className="h-16 w-16 text-primary mx-auto mb-4" />
+    </div>
+    <h2 className="text-3xl font-bold mb-4">Thanks for Your Submission!</h2>
+    <p className="text-lg text-muted-foreground mb-8 max-w-md">
+      Your card has been successfully submitted to the Dramanoes team for review. We&apos;ll be in touch soon!
+    </p>
+    <Button onClick={onSubmitAnother} size="lg">
+      Submit Another Card
+    </Button>
+  </div>
+);
 
 interface CardTypeOptionProps {
   type: string;
@@ -80,9 +83,32 @@ const CardTypeOption: React.FC<CardTypeOptionProps> = ({ type, isSelected, onCli
   </Card>
 );
 
+const TypeSelector: React.FC<{
+  options: string[];
+  selectedValue: string;
+  onChange: (value: string) => void;
+}> = ({ options, selectedValue, onChange }) => (
+  <div className="flex justify-center">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 w-full max-w-2xl mx-auto">
+      {options.map((option) => (
+        <CardTypeOption
+          key={option}
+          type={option}
+          isSelected={selectedValue === option}
+          onClick={() => onChange(option)}
+        />
+      ))}
+    </div>
+  </div>
+);
+
 const Home: React.FC = () => {
+  const [authState, setAuthState] = useState<AuthState>({
+    isLoggedIn: false,
+    userIdentifier: '',
+    authenticationType: null
+  });
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
   const [cardType, setCardType] = useState<'Annoy' | 'Blame' | 'Flaw' | ''>('');
   const [subType, setSubType] = useState('');
   const [cardText, setCardText] = useState('');
@@ -91,11 +117,8 @@ const Home: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmissionComplete, setIsSubmissionComplete] = useState(false);
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
-  const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [isMagicReady, setIsMagicReady] = useState(false);
   const [farcasterFid, setFarcasterFid] = useState('');
-  const [isFarcasterVerified, setIsFarcasterVerified] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
 
@@ -107,9 +130,16 @@ const Home: React.FC = () => {
     setTimeout(() => setShowNotification(false), 3000);
   };
 
-  const initializeFarcasterButton = (): (() => void) | void => {
+  const initializeFarcasterButton = (): void => {
     if (farcasterContainerRef.current) {
+      // Clean up existing content and scripts
       farcasterContainerRef.current.innerHTML = '';
+      const existingScript = document.querySelector('script[src="https://neynarxyz.github.io/siwn/raw/1.2.0/index.js"]');
+      if (existingScript) {
+        existingScript.remove();
+      }
+
+      // Create new button
       const buttonDiv = document.createElement('div');
       buttonDiv.className = 'neynar_signin';
       buttonDiv.setAttribute('data-client_id', process.env.NEXT_PUBLIC_NEYNAR_CLIENT_ID || '');
@@ -117,20 +147,26 @@ const Home: React.FC = () => {
       buttonDiv.setAttribute('data-theme', 'light');
       farcasterContainerRef.current.appendChild(buttonDiv);
 
+      // Create and append new script
       const script = document.createElement('script');
       script.src = 'https://neynarxyz.github.io/siwn/raw/1.2.0/index.js';
       script.async = true;
       document.body.appendChild(script);
-
-      return () => {
-        if (script.parentNode) {
-          script.parentNode.removeChild(script);
-        }
-      };
     }
   };
 
+  const handleLogout = () => {
+    setAuthState({
+      isLoggedIn: false,
+      userIdentifier: '',
+      authenticationType: null
+    });
+    setEmail('');
+    setFarcasterFid('');
+  };
+
   useEffect(() => {
+    // Initialize Magic SDK
     if (!process.env.NEXT_PUBLIC_MAGIC_API_KEY) {
       console.error('Magic API key not found');
       return;
@@ -138,7 +174,6 @@ const Home: React.FC = () => {
     
     magic = new Magic(process.env.NEXT_PUBLIC_MAGIC_API_KEY);
     magic.preload().then(() => {
-      console.log('Magic SDK ready');
       setIsMagicReady(true);
     }).catch((error: unknown) => {
       const magicError = error as MagicSDKError;
@@ -146,38 +181,49 @@ const Home: React.FC = () => {
     });
 
     const callback = (data: NeynarResponse) => {
-      console.log("Farcaster sign-in success:", data);
       setFarcasterFid(data.fid);
-      setIsFarcasterVerified(true);
-      setIsVerified(true);
+      setAuthState({
+        isLoggedIn: true,
+        userIdentifier: `FID: ${data.fid}`,
+        authenticationType: 'farcaster'
+      });
       displayNotification("Farcaster account verified successfully!");
     };
 
-    (window as ExtendedWindow).onSignInSuccess = callback;
-
+    window.onSignInSuccess = callback;
     initializeFarcasterButton();
 
     return () => {
-      if ((window as ExtendedWindow).onSignInSuccess) {
-        (window as ExtendedWindow).onSignInSuccess = undefined;
-      }
+      window.onSignInSuccess = undefined;
     };
   }, []);
+
+  // Add new useEffect for Farcaster button reinitialization
+  useEffect(() => {
+    if (!authState.isLoggedIn) {
+      const timeoutId = setTimeout(() => {
+        initializeFarcasterButton();
+      }, 100); // Small delay to ensure DOM is ready
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [authState.isLoggedIn]);
 
   const handleEmailVerification = async (): Promise<void> => {
     if (!email || !magic || !isMagicReady) return;
 
     try {
       setIsVerifyingEmail(true);
-      console.log('Starting email verification for:', email);
-
       await magic.auth.loginWithMagicLink({ 
         email,
         showUI: true
       });
 
-      setIsEmailVerified(true);
-      setIsVerified(true);
+      setAuthState({
+        isLoggedIn: true,
+        userIdentifier: email,
+        authenticationType: 'email'
+      });
       displayNotification("Email verified successfully!");
     } catch (error: unknown) {
       const magicError = error as MagicSDKError;
@@ -191,7 +237,7 @@ const Home: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
 
-    if (!isVerified) {
+    if (!authState.isLoggedIn) {
       displayNotification("Please verify your identity using either Email or Farcaster");
       return;
     }
@@ -201,21 +247,31 @@ const Home: React.FC = () => {
       return;
     }
 
-    if (!name || !cardType || !cardText || (cardType === 'Flaw' && !flawName)) {
-      const missingFields: string[] = [];
-      if (!name) missingFields.push('Name');
-      if (!cardType) missingFields.push('Card Type');
-      if (!cardText) missingFields.push('Card Text');
-      if (cardType === 'Flaw' && !flawName) missingFields.push('Flaw Name');
-      displayNotification(`Please fill in these required fields: ${missingFields.join(', ')}`);
+    if (!cardType) {
+      displayNotification("Please select a Card Type");
+      return;
+    }
+
+    if (!subType) {
+      displayNotification(`Please select a ${cardType === 'Annoy' ? 'Annoy Type' : 'Flaw Type'}`);
+      return;
+    }
+
+    if (!cardText) {
+      displayNotification("Please enter Card Text");
+      return;
+    }
+
+    if (cardType === 'Flaw' && !flawName) {
+      displayNotification("Please enter a Flaw Name");
       return;
     }
 
     setIsSubmitting(true);
 
     const submitData: CardSubmission = {
-      ...(isEmailVerified && { email }),
-      name,
+      ...(authState.authenticationType === 'email' && { email: authState.userIdentifier }),
+      ...(authState.authenticationType === 'farcaster' && { farcasterFid }),
       CardType: cardType,
       cardText,
       agreedToTerms: agreed,
@@ -225,8 +281,7 @@ const Home: React.FC = () => {
       ...(['Blame', 'Flaw'].includes(cardType) && { 
         subTypePersonality: subType as 'Arrogant' | 'Condescending' | 'Meddling' | 'Obnoxious' | 'Odd' | 'Tactless' 
       }),
-      ...(cardType === 'Flaw' && { flawName }),
-      ...(isFarcasterVerified && { farcasterFid })
+      ...(cardType === 'Flaw' && { flawName })
     };
 
     try {
@@ -252,26 +307,68 @@ const Home: React.FC = () => {
   };
 
   const handleSubmitAnother = (): void => {
-    setEmail('');
-    setName('');
+    // Don't reset auth state
     setCardType('');
     setSubType('');
     setCardText('');
     setFlawName('');
     setAgreed(false);
-    setIsEmailVerified(false);
-    setIsFarcasterVerified(false);
-    setIsVerified(false);
-    setFarcasterFid('');
-    setIsVerifyingEmail(false);
     setIsSubmissionComplete(false);
     setIsSubmitting(false);
     setShowNotification(false);
     setNotificationMessage('');
+  };
 
-    setTimeout(() => {
-      initializeFarcasterButton();
-    }, 0);
+  const renderAuthSection = () => {
+    if (authState.isLoggedIn) {
+      return (
+        <Card className="mb-6">
+          <CardContent className="py-4 px-6 flex justify-between items-center">
+            <span className="font-medium text-green-600">
+              Logged in as {authState.userIdentifier}
+            </span>
+            <Button variant="outline" onClick={handleLogout} className="flex gap-2">
+              <LogOut className="h-4 w-4" />
+              Log Out
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <Card>
+          <CardContent className="pt-6">
+            <h3 className="font-semibold mb-4 text-center">Email Verification</h3>
+            <div className="flex flex-col space-y-2">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
+              />
+              <Button
+                onClick={handleEmailVerification}
+                disabled={isVerifyingEmail || !email || !isMagicReady}
+                className="w-full"
+              >
+                {isVerifyingEmail ? 'Verifying...' : 
+                 !isMagicReady ? 'Loading...' : 
+                 'Verify Email'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <h3 className="font-semibold mb-4 text-center">Farcaster Verification</h3>
+            <div className="flex justify-center min-h-[40px]" ref={farcasterContainerRef} />
+          </CardContent>
+        </Card>
+      </div>
+    );
   };
 
   if (isSubmissionComplete) {
@@ -292,160 +389,107 @@ const Home: React.FC = () => {
           </p>
         </div>
 
-        <div className="max-w-xl mx-auto">
-          <p className="mt-2 text-sm text-muted-foreground text-center">
-            <i>Please choose a verification method: Email or Farcaster. We will contact you via email or Warpcast Direct-Cast.</i>
-          </p>
-        </div>
+        {renderAuthSection()}
 
-        {/* Verification Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          {/* Email Verification Card */}
-          <Card 
-            className={`transition-all duration-200 ${isEmailVerified ? "border-green-500 border-2" : ""} 
-            ${isFarcasterVerified ? "opacity-50 grayscale pointer-events-none" : ""}`}
-          >
-            <CardContent className="pt-6">
-              <h3 className="font-semibold mb-4 text-center">Email Verification</h3>
-              {!isFarcasterVerified && (
-                <div className="flex flex-col space-y-2">
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                    disabled={isEmailVerified}
-                  />
-                  {!isEmailVerified && (
-                    <Button
-                      onClick={handleEmailVerification}
-                      disabled={isVerifyingEmail || !email || !isMagicReady}
-                      className="w-full"
-                    >
-                      {isVerifyingEmail ? 'Verifying...' : 
-                       !isMagicReady ? 'Loading...' : 
-                       'Verify Email'}
-                    </Button>
-                  )}
-                </div>
-              )}
-              {isEmailVerified && (
-                <p className="text-green-600 font-medium">✓ Verified: {email}</p>
-              )}
-            </CardContent>
-          </Card>
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <div className="flex items-start space-x-2">
+              <Checkbox
+                id="terms"
+                checked={agreed}
+                onCheckedChange={(checked) => setAgreed(checked as boolean)}
+                required
+              />
+              <label htmlFor="terms" className="text-sm">
+                I agree to waive my IP rights and join the Dramanoes royalty program
+                <span className="text-destructive">*</span>
+              </label>
+            </div>
+          </CardContent>
+        </Card>
 
-          {/* Farcaster Verification Card */}
-          <Card 
-            className={`transition-all duration-200 ${isFarcasterVerified ? "border-green-500 border-2" : ""}
-            ${isEmailVerified ? "opacity-50 grayscale pointer-events-none" : ""}`}
-          >
-            <CardContent className="pt-6">
-              <h3 className="font-semibold mb-4 text-center">Farcaster Verification</h3>
-              {!isEmailVerified && !isFarcasterVerified && (
-                <div className="flex justify-center" ref={farcasterContainerRef}>
-                  {/* Farcaster button will be initialized here */}
-                </div>
-              )}
-              {isFarcasterVerified && (
-                <p className="text-green-600 font-medium">✓ Verified FID: {farcasterFid}</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Form */}
         <Card>
           <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Your Name
-                </label>
-                <Input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Card Type
-                </label>
-                <div className="grid grid-cols-3 gap-4">
-                  <CardTypeOption 
-                    type="Annoy"
-                    isSelected={cardType === 'Annoy'}
-                    onClick={() => setCardType('Annoy')}
-                  />
-                  <CardTypeOption 
-                    type="Blame"
-                    isSelected={cardType === 'Blame'}
-                    onClick={() => setCardType('Blame')}
-                  />
-                  <CardTypeOption 
-                    type="Flaw"
-                    isSelected={cardType === 'Flaw'}
-                    onClick={() => setCardType('Flaw')}
-                  />
+              <div className="space-y-4">
+                <SectionHeading>Card Type</SectionHeading>
+                <div className="flex justify-center">
+                  <div className="grid grid-cols-3 gap-4 w-full max-w-xl">
+                    <CardTypeOption 
+                      type="Annoy"
+                      isSelected={cardType === 'Annoy'}
+                      onClick={() => {
+                        setCardType('Annoy');
+                        setSubType('');
+                      }}
+                    />
+                    <CardTypeOption 
+                      type="Blame"
+                      isSelected={cardType === 'Blame'}
+                      onClick={() => {
+                        setCardType('Blame');
+                        setSubType('');
+                      }}
+                    />
+                    <CardTypeOption 
+                      type="Flaw"
+                      isSelected={cardType === 'Flaw'}
+                      onClick={() => {
+                        setCardType('Flaw');
+                        setSubType('');
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 
-              {cardType && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {cardType === 'Annoy' ? 'Annoy Type' : 
-                     cardType === 'Blame' ? 'Blame a Flaw' : 
-                     'Flaw Type'}
-                  </label>
-                  <Select value={subType} onValueChange={setSubType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {cardType === 'Annoy' ? (
-                        <>
-                          <SelectItem value="Duck">Duck</SelectItem>
-                          <SelectItem value="Skip">Skip</SelectItem>
-                          <SelectItem value="Steal">Steal</SelectItem>
-                          <SelectItem value="Undo">Undo</SelectItem>
-                        </>
-                      ) : (
-                        <>
-                          <SelectItem value="Arrogant">Arrogant</SelectItem>
-                          <SelectItem value="Condescending">Condescending</SelectItem>
-                          <SelectItem value="Meddling">Meddling</SelectItem>
-                          <SelectItem value="Obnoxious">Obnoxious</SelectItem>
-                          <SelectItem value="Odd">Odd</SelectItem>
-                          <SelectItem value="Tactless">Tactless</SelectItem>
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
+              {cardType === 'Annoy' && (
+                <div className="space-y-4">
+                  <SectionHeading>Annoy Type</SectionHeading>
+                  <TypeSelector 
+                    options={['Duck', 'Skip', 'Steal', 'Undo']}
+                    selectedValue={subType}
+                    onChange={setSubType}
+                  />
+                </div>
+              )}
+
+              {['Blame', 'Flaw'].includes(cardType) && (
+                <div className="space-y-4">
+                  <SectionHeading>
+                    {cardType === 'Blame' ? 'Blame a Flaw' : 'Flaw Type'}
+                  </SectionHeading>
+                  <TypeSelector 
+                    options={[
+                      'Arrogant',
+                      'Condescending',
+                      'Meddling',
+                      'Obnoxious',
+                      'Odd',
+                      'Tactless'
+                    ]}
+                    selectedValue={subType}
+                    onChange={setSubType}
+                  />
                 </div>
               )}
 
               {cardType === 'Flaw' && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Flaw Name
-                  </label>
+                <div className="space-y-4">
+                  <SectionHeading>Flaw Name</SectionHeading>
                   <Input
                     type="text"
                     value={flawName}
                     onChange={(e) => setFlawName(e.target.value)}
                     placeholder="e.g., Pot Stirrer"
                     required
+                    className="max-w-xl mx-auto"
                   />
                 </div>
               )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Card Text
-                </label>
+              <div className="space-y-4">
+                <SectionHeading>Card Text</SectionHeading>
                 <Textarea
                   value={cardText}
                   onChange={(e) => setCardText(e.target.value)}
@@ -456,25 +500,14 @@ const Home: React.FC = () => {
                     'e.g., "Id be pissed if I were you."'
                   }
                   required
+                  className="max-w-xl mx-auto"
                 />
-              </div>
-
-              <div className="flex items-start space-x-2">
-                <Checkbox
-                  id="terms"
-                  checked={agreed}
-                  onCheckedChange={(checked) => setAgreed(checked as boolean)}
-                  required
-                />
-                <label htmlFor="terms" className="text-sm">
-                  I agree to waive my IP rights and join the Dramanoes royalty program <span className="text-destructive">*</span>
-                </label>
               </div>
 
               <Button
                 type="submit"
-                disabled={isSubmitting || !agreed}
-                className="w-full"
+                disabled={isSubmitting || !agreed || !authState.isLoggedIn}
+                className="w-full max-w-xl mx-auto block"
               >
                 {isSubmitting ? 'Submitting...' : 'Submit Card'}
               </Button>
